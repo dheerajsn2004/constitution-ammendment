@@ -1,11 +1,17 @@
 const express = require('express');
-const { signup, login, logout } = require('../controllers/authController');
+const authController = require('../controllers/authController');
 const protect = require('../middleware/authMiddleware');
 const router = express.Router();
 
-router.post('/signup', signup);
-router.post('/login', login);
-router.post('/logout', protect, logout); // Logout requires authentication
-router.get('/check', protect, (req, res) => res.json({ message: 'Authenticated' }));
+// Add this route
+router.get('/check', protect, (req, res) => {
+  res.json({ message: 'Authenticated' });
+});
+
+// Your existing routes
+router.post('/signup', authController.signup);
+router.post('/login', authController.login);
+router.post('/logout', protect, authController.logout);
+router.post('/create-admin', authController.createAdmin);
 
 module.exports = router;

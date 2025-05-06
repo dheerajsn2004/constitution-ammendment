@@ -1,36 +1,193 @@
 const Vote = require('../models/Vote');
+const User = require('../models/User');
+const Amendment = require('../models/Amendment');
 
 exports.submitVote = async (req, res) => {
-  const { choice } = req.body;
+  const { amendmentId, choice } = req.body;
   try {
-    const existingVote = await Vote.findOne({ user: req.user.id });
-    if (existingVote) {
-      return res.status(400).json({ message: 'Already voted' });
+    // Check if voting is open for this amendment
+    const amendment = await Amendment.findById(amendmentId);
+    if (!amendment || !amendment.isVotingOpen) {
+      return res.status(400).json({ message: 'Voting is not currently open for this amendment' });
     }
 
-    const vote = new Vote({ user: req.user.id, choice });
+    // Check if user already voted for this amendment
+    const existingVote = await Vote.findOne({ 
+      user: req.user.id,
+      amendment: amendmentId 
+    });
+    
+    if (existingVote) {
+      return res.status(400).json({ message: 'Already voted for this amendment' });
+    }
+
+    const vote = new Vote({ 
+      user: req.user.id,
+      amendment: amendmentId,
+      choice 
+    });
+    
     await vote.save();
-    res.json({ message: 'Vote recorded' });
+    
+    // Update amendment vote counts
+    if (choice === 'YES') {
+      await Amendment.findByIdAndUpdate(amendmentId, { $inc: { yesVotes: 1 } });
+    } else {
+      await Amendment.findByIdAndUpdate(amendmentId, { $inc: { noVotes: 1 } });
+    }
+
+    res.json({ 
+      message: 'Vote recorded successfully',
+      voteId: vote._id
+    });
   } catch (err) {
-    res.status(500).json({ error: err });
+    res.status(500).json({ 
+      message: 'Failed to submit vote',
+      error: err.message 
+    });
   }
 };
 
-exports.checkVote = async (req, res) => {
+exports.getVotesForAmendment = async (req, res) => {
+  const { amendmentId } = req.params;
   try {
-    const existingVote = await Vote.findOne({ user: req.user._id });
-    if (!existingVote) {
-      return res.json({ hasVoted: false });
+    // Only admin can see individual votes
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: 'Unauthorized' });
     }
-    res.json({ 
-      hasVoted: true,
-      choice: existingVote.choice // Optionally include the vote choice
+
+    const votes = await Vote.find({ amendment: amendmentId })
+      .populate('user', 'name email')
+      .select('choice user createdAt');
+
+    const amendment = await Amendment.findById(amendmentId);
+    
+    if (!amendment) {
+      return res.status(404).json({ message: 'Amendment not found' });
+    }
+
+    res.json({
+      amendmentTitle: amendment.title,
+      isVotingOpen: amendment.isVotingOpen,
+      yesVotes: amendment.yesVotes,
+      noVotes: amendment.noVotes,
+      votes // Detailed votes with user info
     });
   } catch (err) {
-    console.error('Vote check error:', err);
     res.status(500).json({ 
-      error: 'Failed to check vote status',
-      details: err.message 
+      message: 'Failed to get votes',
+      error: err.message 
+    });
+  }
+};
+
+exports.getPublicVoteCounts = async (req, res) => {
+  const { amendmentId } = req.params;
+  try {
+    const amendment = await Amendment.findById(amendmentId);
+    
+    if (!amendment) {
+      return res.status(404).json({ message: 'Amendment not found' });
+    }
+
+    res.json({
+      amendmentTitle: amendment.title,
+      isVotingOpen: amendment.isVotingOpen,
+      yesVotes: amendment.yesVotes,
+      noVotes: amendment.noVotes,
+      showResults: amendment.showResults
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      message: 'Failed to get vote counts',
+      error: err.message 
+    });
+  }
+};
+
+exports.toggleVotingStatus = async (req, res) => {
+  const { amendmentId } = req.params;
+  const { isVotingOpen } = req.body;
+  
+  try {
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const amendment = await Amendment.findByIdAndUpdate(
+      amendmentId,
+      { isVotingOpen },
+      { new: true }
+    );
+
+    res.json({
+      message: `Voting ${amendment.isVotingOpen ? 'opened' : 'closed'} successfully`,
+      amendment
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      message: 'Failed to update voting status',
+      error: err.message 
+    });
+  }
+};
+
+exports.toggleResultsVisibility = async (req, res) => {
+  const { amendmentId } = req.params;
+  const { showResults } = req.body;
+  
+  try {
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const amendment = await Amendment.findByIdAndUpdate(
+      amendmentId,
+      { showResults },
+      { new: true }
+    );
+
+    res.json({
+      message: `Results visibility ${amendment.showResults ? 'enabled' : 'disabled'}`,
+      amendment
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      message: 'Failed to update results visibility',
+      error: err.message 
+    });
+  }
+};
+
+exports.deleteVote = async (req, res) => {
+  const { voteId } = req.params;
+  
+  try {
+    if (!req.user.isAdmin) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const vote = await Vote.findByIdAndDelete(voteId);
+    
+    if (!vote) {
+      return res.status(404).json({ message: 'Vote not found' });
+    }
+
+    // Update amendment vote counts
+    const update = vote.choice === 'YES' 
+      ? { $inc: { yesVotes: -1 } } 
+      : { $inc: { noVotes: -1 } };
+    
+    await Amendment.findByIdAndUpdate(vote.amendment, update);
+
+    res.json({ 
+      message: 'Vote deleted successfully',
+      deletedVote: vote 
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      message: 'Failed to delete vote',
+      error: err.message 
     });
   }
 };

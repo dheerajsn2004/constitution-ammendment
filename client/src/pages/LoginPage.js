@@ -7,7 +7,7 @@ const LoginPage = () => {
   const [form, setForm] = useState({ email: '', password: '' });
   const [message, setMessage] = useState({ text: '', type: '' });
   const navigate = useNavigate();
-  const { setSessionToken } = useAuth();
+  const { setSessionToken, setUserData } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,10 +18,17 @@ const LoginPage = () => {
         form
       );
       setSessionToken(res.data.sessionToken);
+      setUserData({
+        isAdmin: res.data.isAdmin,
+        name: res.data.name
+      });
       setMessage({ text: 'Login successful! Redirecting...', type: 'success' });
-      setTimeout(() => navigate('/vote'), 1500);
+      setTimeout(() => navigate(res.data.isAdmin ? '/vote' : '/vote'), 1500);
     } catch (err) {
-      setMessage({ text: 'Invalid credentials', type: 'error' });
+      setMessage({ 
+        text: err.response?.data?.message || 'Invalid credentials', 
+        type: 'error' 
+      });
     }
   };
 

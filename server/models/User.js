@@ -2,11 +2,12 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
 const userSchema = new mongoose.Schema({
-  name: String,
-  email: { type: String, unique: true },
-  password: String,
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
   sessionToken: { type: String, default: null },
-  hasVoted: { type: Boolean, default: false } // Add this field
+  isAdmin: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
 });
 
 userSchema.pre('save', async function (next) {

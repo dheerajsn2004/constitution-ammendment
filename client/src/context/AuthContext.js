@@ -4,22 +4,31 @@ const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [sessionToken, setSessionToken] = useState(() => {
-    // Check if sessionToken is already in localStorage
     return localStorage.getItem('sessionToken') || null;
+  });
+  const [userData, setUserData] = useState(() => {
+    const storedUser = localStorage.getItem('userData');
+    return storedUser ? JSON.parse(storedUser) : null;
   });
 
   useEffect(() => {
     if (sessionToken) {
-      // Store sessionToken in localStorage whenever it changes
       localStorage.setItem('sessionToken', sessionToken);
     } else {
-      // Remove sessionToken from localStorage when it's null
       localStorage.removeItem('sessionToken');
     }
   }, [sessionToken]);
 
+  useEffect(() => {
+    if (userData) {
+      localStorage.setItem('userData', JSON.stringify(userData));
+    } else {
+      localStorage.removeItem('userData');
+    }
+  }, [userData]);
+
   return (
-    <AuthContext.Provider value={{ sessionToken, setSessionToken }}>
+    <AuthContext.Provider value={{ sessionToken, setSessionToken, userData, setUserData }}>
       {children}
     </AuthContext.Provider>
   );

@@ -10,38 +10,42 @@ const VotingPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState({ text: '', type: '' });
   const [showVotingModal, setShowVotingModal] = useState(false);
+  const [showResultsModal, setShowResultsModal] = useState(false);
+  const [voteCounts, setVoteCounts] = useState(null);
+  const [adminControls, setAdminControls] = useState(false);
   const navigate = useNavigate();
-  const { sessionToken, setSessionToken } = useAuth();
+  const { sessionToken, setSessionToken, userData } = useAuth();
 
-  // Generate 15 amendments if not loaded from API
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        // Verify authentication
+        // First verify authentication
         await axios.get('http://localhost:5000/api/v1/auth/check', {
           headers: { Authorization: sessionToken }
         });
-
-        // In a real app, you would fetch amendments from API
-        const mockAmendments = Array.from({ length: 15 }, (_, i) => ({
-          id: i + 1,
-          title: `Amendment ${i + 1}`,
-          description: `This amendment proposes changes to section ${i + 1} of the constitution. The specific changes include...`,
-          userVoted: false
-        }));
-
-        setAmendments(mockAmendments);
+        
+        // Then fetch amendments
+        const response = await axios.get('http://localhost:5000/api/v1/amendments', {
+          headers: { Authorization: sessionToken }
+        });
+        
+        setAmendments(response.data);
       } catch (error) {
+        console.error('Fetch error:', error);
         if (error.response?.status === 401) {
           navigate('/');
+        } else {
+          setMessage({
+            text: 'Failed to load data. Please try again.',
+            type: 'error'
+          });
         }
-        setMessage({ text: 'Failed to load amendments', type: 'error' });
       } finally {
         setIsLoading(false);
       }
     };
-
+  
     if (sessionToken) {
       fetchData();
     } else {
@@ -61,14 +65,44 @@ const VotingPage = () => {
     setChoice('');
   };
 
+  const openResultsModal = async (amendment) => {
+    try {
+      const res = await axios.get(
+        `http://localhost:5000/api/v1/vote/public/${amendment._id}`
+      );
+      setVoteCounts(res.data);
+      setShowResultsModal(true);
+    } catch (err) {
+      setMessage({
+        text: 'Failed to load vote results',
+        type: 'error'
+      });
+    }
+  };
+
+  const closeResultsModal = () => {
+    setShowResultsModal(false);
+    setVoteCounts(null);
+  };
+
   const handleVote = async () => {
     if (!choice || !selectedAmendment) return;
     
     try {
-      // In a real app, you would send the vote to the API
+      await axios.post(
+        'http://localhost:5000/api/v1/vote',
+        { amendmentId: selectedAmendment._id, choice },
+        { headers: { Authorization: sessionToken } }
+      );
+
+      // Update local state
       setAmendments(prev => prev.map(amendment => 
-        amendment.id === selectedAmendment.id 
-          ? { ...amendment, userVoted: true } 
+        amendment._id === selectedAmendment._id 
+          ? { 
+              ...amendment, 
+              yesVotes: choice === 'YES' ? amendment.yesVotes + 1 : amendment.yesVotes,
+              noVotes: choice === 'NO' ? amendment.noVotes + 1 : amendment.noVotes
+            } 
           : amendment
       ));
 
@@ -79,8 +113,60 @@ const VotingPage = () => {
       closeVotingModal();
     } catch (error) {
       setMessage({ 
-        text: `Failed to submit vote for ${selectedAmendment.title}`, 
+        text: error.response?.data?.message || `Failed to submit vote for ${selectedAmendment.title}`, 
         type: 'error' 
+      });
+    }
+  };
+
+  const toggleVotingStatus = async (amendmentId, isVotingOpen) => {
+    try {
+      await axios.put(
+        `http://localhost:5000/api/v1/vote/${amendmentId}/toggle-voting`,
+        { isVotingOpen },
+        { headers: { Authorization: sessionToken } }
+      );
+
+      setAmendments(prev => prev.map(amendment => 
+        amendment._id === amendmentId 
+          ? { ...amendment, isVotingOpen } 
+          : amendment
+      ));
+
+      setMessage({
+        text: `Voting ${isVotingOpen ? 'opened' : 'closed'} successfully`,
+        type: 'success'
+      });
+    } catch (error) {
+      setMessage({
+        text: error.response?.data?.message || 'Failed to update voting status',
+        type: 'error'
+      });
+    }
+  };
+
+  const toggleResultsVisibility = async (amendmentId, showResults) => {
+    try {
+      await axios.put(
+        `http://localhost:5000/api/v1/vote/${amendmentId}/toggle-results`,
+        { showResults },
+        { headers: { Authorization: sessionToken } }
+      );
+
+      setAmendments(prev => prev.map(amendment => 
+        amendment._id === amendmentId 
+          ? { ...amendment, showResults } 
+          : amendment
+      ));
+
+      setMessage({
+        text: `Results visibility ${showResults ? 'enabled' : 'disabled'}`,
+        type: 'success'
+      });
+    } catch (error) {
+      setMessage({
+        text: error.response?.data?.message || 'Failed to update results visibility',
+        type: 'error'
       });
     }
   };
@@ -112,8 +198,16 @@ const VotingPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 bg-opacity-90 bg-[url('https://images.unsplash.com/photo-1523050854058-8df90110c9f1?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80')] bg-cover bg-center bg-no-repeat bg-fixed px-4 py-8 relative">
-      {/* Logout button */}
-      <div className="absolute top-4 right-4">
+      {/* Header with admin/user info */}
+      <div className="absolute top-4 right-4 flex items-center space-x-4">
+        {adminControls && (
+          <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+            ADMIN MODE
+          </span>
+        )}
+        <span className="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm font-medium">
+          {userData?.name || 'User'}
+        </span>
         <button
           onClick={handleLogout}
           className="bg-white border border-red-500 text-red-600 hover:bg-red-100 px-3 py-1 sm:px-4 sm:py-2 rounded-md font-semibold flex items-center text-sm sm:text-base"
@@ -129,7 +223,7 @@ const VotingPage = () => {
         {/* Header */}
         <div className="text-center mb-10">
           <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 mb-2 font-serif">Constitutional Amendments</h1>
-          <p className="text-gray-600 text-lg">Select an amendment to vote</p>
+          <p className="text-gray-600 text-lg">Select an amendment to {adminControls ? 'manage' : 'vote on'}</p>
         </div>
 
         {/* Message display */}
@@ -162,26 +256,99 @@ const VotingPage = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
           {amendments.map(amendment => (
             <div 
-              key={amendment.id} 
-              className="bg-white rounded-lg shadow-md overflow-hidden border-t-4 border-blue-500 hover:shadow-lg transition-shadow"
+              key={amendment._id} 
+              className="bg-white rounded-lg shadow-md overflow-hidden border-t-4 border-blue-500 hover:shadow-lg transition-shadow relative"
             >
+              {amendment.isVotingOpen && (
+                <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                  OPEN
+                </div>
+              )}
+              {amendment.showResults && (
+                <div className="absolute top-2 left-2 bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                  RESULTS VISIBLE
+                </div>
+              )}
+              
               <div className="p-5 h-full flex flex-col">
                 <div className="flex-grow">
                   <h3 className="text-xl font-bold text-blue-700 mb-3">{amendment.title}</h3>
                   <p className="text-sm text-gray-600 mb-4 line-clamp-3">{amendment.description}</p>
+                  
+                  {amendment.showResults && (
+                    <div className="mt-4">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-green-600">Yes: {amendment.yesVotes}</span>
+                        <span className="text-red-600">No: {amendment.noVotes}</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div 
+                          className="bg-gradient-to-r from-green-500 to-red-500 h-2 rounded-full" 
+                          style={{ 
+                            width: `${amendment.yesVotes + amendment.noVotes > 0 
+                              ? (amendment.yesVotes / (amendment.yesVotes + amendment.noVotes)) * 100 
+                              : 0}%` 
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
-                <button
-                  onClick={() => openVotingModal(amendment)}
-                  disabled={amendment.userVoted}
-                  className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${
-                    amendment.userVoted
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700 text-white'
-                  }`}
-                >
-                  {amendment.userVoted ? 'Already Voted' : 'Vote'}
-                </button>
+                <div className="space-y-2 mt-4">
+                  {adminControls ? (
+                    <>
+                      <button
+                        onClick={() => toggleVotingStatus(amendment._id, !amendment.isVotingOpen)}
+                        className={`w-full py-2 px-4 rounded-md font-medium ${
+                          amendment.isVotingOpen
+                            ? 'bg-red-600 hover:bg-red-700 text-white'
+                            : 'bg-green-600 hover:bg-green-700 text-white'
+                        }`}
+                      >
+                        {amendment.isVotingOpen ? 'Close Voting' : 'Open Voting'}
+                      </button>
+                      <button
+                        onClick={() => toggleResultsVisibility(amendment._id, !amendment.showResults)}
+                        className={`w-full py-2 px-4 rounded-md font-medium ${
+                          amendment.showResults
+                            ? 'bg-gray-600 hover:bg-gray-700 text-white'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                      >
+                        {amendment.showResults ? 'Hide Results' : 'Show Results'}
+                      </button>
+                      <button
+                        onClick={() => openResultsModal(amendment)}
+                        className="w-full py-2 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-md font-medium"
+                      >
+                        View Votes
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => openVotingModal(amendment)}
+                        disabled={!amendment.isVotingOpen}
+                        className={`w-full py-2 px-4 rounded-md font-medium ${
+                          !amendment.isVotingOpen
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        }`}
+                      >
+                        {amendment.isVotingOpen ? 'Vote' : 'Voting Closed'}
+                      </button>
+                      {amendment.showResults && (
+                        <button
+                          onClick={() => openResultsModal(amendment)}
+                          className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium"
+                        >
+                          View Results
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -255,6 +422,109 @@ const VotingPage = () => {
                     SUBMIT VOTE
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Results Modal */}
+        {showResultsModal && voteCounts && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl border-t-8 border-blue-700">
+              <div className="p-6 sm:p-8">
+                <div className="flex justify-between items-start mb-6">
+                  <h2 className="text-2xl font-bold text-gray-800">{voteCounts.amendmentTitle} Results</h2>
+                  <button 
+                    onClick={closeResultsModal}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="mb-6">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-lg font-medium text-green-600">Yes Votes: {voteCounts.yesVotes}</span>
+                    <span className="text-lg font-medium text-red-600">No Votes: {voteCounts.noVotes}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-4">
+                    <div 
+                      className="bg-gradient-to-r from-green-500 to-red-500 h-4 rounded-full" 
+                      style={{ 
+                        width: `${voteCounts.yesVotes + voteCounts.noVotes > 0 
+                          ? (voteCounts.yesVotes / (voteCounts.yesVotes + voteCounts.noVotes)) * 100 
+                          : 0}%` 
+                      }}
+                    ></div>
+                  </div>
+                </div>
+
+                {adminControls && voteCounts.votes && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Individual Votes:</h3>
+                    <div className="overflow-y-auto max-h-96">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Voter</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vote</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {voteCounts.votes.map((vote) => (
+                            <tr key={vote._id}>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{vote.user.name}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{vote.user.email}</td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                  vote.choice === 'YES' 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-red-100 text-red-800'
+                                }`}>
+                                  {vote.choice}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <button 
+                                  onClick={async () => {
+                                    try {
+                                      await axios.delete(
+                                        `http://localhost:5000/api/v1/vote/${vote._id}`,
+                                        { headers: { Authorization: sessionToken } }
+                                      );
+                                      // Refresh the data
+                                      const res = await axios.get(
+                                        `http://localhost:5000/api/v1/vote/${selectedAmendment._id}`,
+                                        { headers: { Authorization: sessionToken } }
+                                      );
+                                      setVoteCounts(res.data);
+                                      setMessage({
+                                        text: 'Vote deleted successfully',
+                                        type: 'success'
+                                      });
+                                    } catch (error) {
+                                      setMessage({
+                                        text: 'Failed to delete vote',
+                                        type: 'error'
+                                      });
+                                    }
+                                  }}
+                                  className="text-red-600 hover:text-red-900"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
