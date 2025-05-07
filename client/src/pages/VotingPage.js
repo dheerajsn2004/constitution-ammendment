@@ -85,40 +85,54 @@ const VotingPage = () => {
     setVoteCounts(null);
   };
 
+  // VotingPage.js
   const handleVote = async () => {
     if (!choice || !selectedAmendment) return;
     
     try {
-      await axios.post(
+      const response = await axios.post(
         'http://localhost:5000/api/v1/vote',
         { amendmentId: selectedAmendment._id, choice },
         { headers: { Authorization: sessionToken } }
       );
-
-      // Update local state
+  
+      // Update local state only for this specific amendment
       setAmendments(prev => prev.map(amendment => 
         amendment._id === selectedAmendment._id 
           ? { 
               ...amendment, 
               yesVotes: choice === 'YES' ? amendment.yesVotes + 1 : amendment.yesVotes,
-              noVotes: choice === 'NO' ? amendment.noVotes + 1 : amendment.noVotes
+              noVotes: choice === 'NO' ? amendment.noVotes + 1 : amendment.noVotes,
+              hasVoted: true // Only mark THIS amendment as voted
             } 
           : amendment
       ));
-
+  
       setMessage({ 
         text: `Your vote for ${selectedAmendment.title} has been recorded`, 
         type: 'success' 
       });
       closeVotingModal();
     } catch (error) {
+      console.error('Voting error:', error);
+      
+      let errorMessage = error.response?.data?.message || 
+                        `Failed to submit vote for ${selectedAmendment.title}`;
+      
+      if (error.response?.status === 400) {
+        if (error.response.data.message.includes('specific amendment')) {
+          errorMessage = "You've already voted on this specific amendment";
+        } else {
+          errorMessage = "Voting is currently closed for this amendment";
+        }
+      }
+  
       setMessage({ 
-        text: error.response?.data?.message || `Failed to submit vote for ${selectedAmendment.title}`, 
+        text: errorMessage, 
         type: 'error' 
       });
     }
   };
-
   const toggleVotingStatus = async (amendmentId, isVotingOpen) => {
     try {
       await axios.put(

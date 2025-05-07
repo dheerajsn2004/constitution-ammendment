@@ -1,53 +1,80 @@
 const Vote = require('../models/Vote');
 const User = require('../models/User');
 const Amendment = require('../models/Amendment');
+const mongoose = require('mongoose');
 
+// In voteController.js
+// Modified submitVote to only count most recent vote
+// In voteController.js
+// In voteController.js
+// controllers/voteController.js
 exports.submitVote = async (req, res) => {
   const { amendmentId, choice } = req.body;
+  
   try {
-    // Check if voting is open for this amendment
-    const amendment = await Amendment.findById(amendmentId);
-    if (!amendment || !amendment.isVotingOpen) {
-      return res.status(400).json({ message: 'Voting is not currently open for this amendment' });
+    // Validate input
+    if (!mongoose.Types.ObjectId.isValid(amendmentId)) {
+      return res.status(400).json({ message: 'Invalid amendment ID' });
     }
 
-    // Check if user already voted for this amendment
-    const existingVote = await Vote.findOne({ 
-      user: req.user.id,
-      amendment: amendmentId 
+    // Check if amendment exists and voting is open
+    const amendment = await Amendment.findById(amendmentId);
+    if (!amendment) {
+      return res.status(404).json({ message: 'Amendment not found' });
+    }
+    if (!amendment.isVotingOpen) {
+      return res.status(400).json({ message: 'Voting is closed for this amendment' });
+    }
+
+    // Check for existing vote for THIS SPECIFIC amendment
+    const existingVote = await Vote.findOne({
+      user: req.user._id,
+      amendment: amendmentId  // Note we're checking for this specific amendment
     });
     
     if (existingVote) {
-      return res.status(400).json({ message: 'Already voted for this amendment' });
+      return res.status(400).json({ 
+        message: 'You have already voted on this specific amendment',
+        existingVoteId: existingVote._id
+      });
     }
 
-    const vote = new Vote({ 
-      user: req.user.id,
+    // Create and save new vote
+    const vote = new Vote({
+      user: req.user._id,
       amendment: amendmentId,
-      choice 
+      choice
     });
-    
     await vote.save();
+
+    // Update amendment counts
+    const update = choice === 'YES' 
+      ? { $inc: { yesVotes: 1 } }
+      : { $inc: { noVotes: 1 } };
+    await Amendment.findByIdAndUpdate(amendmentId, update);
+
+    res.status(201).json({
+      message: 'Vote recorded successfully',
+      voteId: vote._id,
+      amendmentId: amendmentId
+    });
+
+  } catch (err) {
+    console.error('Vote submission error:', err);
     
-    // Update amendment vote counts
-    if (choice === 'YES') {
-      await Amendment.findByIdAndUpdate(amendmentId, { $inc: { yesVotes: 1 } });
-    } else {
-      await Amendment.findByIdAndUpdate(amendmentId, { $inc: { noVotes: 1 } });
+    if (err.code === 11000) {
+      return res.status(400).json({
+        message: 'Database error: Duplicate vote detected',
+        error: err.message
+      });
     }
 
-    res.json({ 
-      message: 'Vote recorded successfully',
-      voteId: vote._id
-    });
-  } catch (err) {
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Failed to submit vote',
-      error: err.message 
+      error: err.message
     });
   }
 };
-
 exports.getVotesForAmendment = async (req, res) => {
   const { amendmentId } = req.params;
   try {
