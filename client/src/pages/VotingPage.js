@@ -236,8 +236,8 @@ const VotingPage = () => {
       <div className="container mx-auto py-8">
         {/* Header */}
         <div className="text-center mb-10">
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 mb-2 font-serif">Constitutional Amendments</h1>
-          <p className="text-gray-600 text-lg">Select an amendment to {adminControls ? 'manage' : 'vote on'}</p>
+          <h1 className="text-3xl sm:text-4xl text-white font-bold mb-2 font-serif">Constitutional Amendments</h1>
+          <p className="text-white text-lg">Select an amendment to {adminControls ? 'manage' : 'vote on'}</p>
         </div>
 
         {/* Message display */}
